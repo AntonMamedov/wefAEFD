@@ -1,0 +1,4 @@
+project(dummy_file_registrator)
+
+
+add_executable(dummy_file_registrator dummy_file_registrator.c)
