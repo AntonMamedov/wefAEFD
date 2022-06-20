@@ -516,7 +516,6 @@ static struct {
 
 static u32 string_hash(const void *data, u32, u32) {
     const char* str = (const char*)data;
-    INFO("%s", str);
     const int p = 53;
     const int m = 912239431;
     u32 hash_value = 0;
@@ -530,7 +529,8 @@ static u32 string_hash(const void *data, u32, u32) {
 }
 
 static u32 dummy_file_hash(const void *data, u32 len, u32 seed) {
-    return string_hash(((dummy_file_t*)data)->fname, len, seed);
+    const dummy_file_t* dummy_file = data;
+    return string_hash(dummy_file->fname, len, seed);
 }
 
 static int dummy_file_cmp(struct rhashtable_compare_arg *arg,
@@ -539,12 +539,11 @@ static int dummy_file_cmp(struct rhashtable_compare_arg *arg,
 }
 
 static struct rhashtable_params dummy_file_param = {
-        .key_len = 0,
         .key_offset = offsetof(dummy_file_t, fname),
         .head_offset = offsetof(dummy_file_t, head),
         .obj_cmpfn = dummy_file_cmp,
-        .obj_hashfn = string_hash,
         .hashfn = string_hash,
+        .obj_hashfn = dummy_file_hash,
         .min_size = 16
 };
 
@@ -563,8 +562,8 @@ static struct rhashtable_params proxy_params = {
 dummy_file_t* pec_storage_create_dummy_file(pec_storage_t* dst, const char* fname) {
     dummy_file_t* dummy_file = new_dummy_file(fname, atomic_long_inc_return(&pec_id_counters.dummy_file_id), NULL);
 
-    dummy_file_t* old = rhashtable_lookup_get_insert_fast(&dst->dummy_files, &dummy_file->head, dummy_file_param);
-    if (old != NULL) {
+    int ret = rhashtable_insert_fast(&dst->dummy_files, &dummy_file->head, dummy_file_param);
+    if (ret != 0) {
         dummy_file_destroy(dummy_file, NULL);
         return NULL;
     }
@@ -579,7 +578,6 @@ service_t * pec_storage_create_service(pec_storage_t* dst) {
         service_destroy(service, NULL);
         return NULL;
     }
-
     return service;
 }
 
@@ -617,17 +615,22 @@ void pec_store_init(void) {
     rwlock_init(&storage.proxy_lock);
 }
 
-#define PATH_TO_PROXY ""
+void pec_destroy(void) {
+    rhashtable_free_and_destroy(&storage.dummy_files, (void (*)(void *, void *)) dummy_file_destroy, NULL);
+    rhashtable_free_and_destroy(&storage.services, (void (*)(void *, void *)) service_destroy, NULL);
+    rhashtable_free_and_destroy(&storage.proxy, (void (*)(void *, void *)) proxy_destroy, NULL);
+}
+#define PATH_TO_PROXY "/home/amamedov/dev/university/final/proxy-exec/cmake-build-debug/bin/pec-proxy"
 
 int pec_execve(struct pt_regs *args) {
     struct filename* fln = pec_symbols.getname((const char*)args->di);
     service_t * service = NULL;
 
     dummy_file_t* dummy_file = pec_storage_find_dummy_file_by_fnmae(&storage, fln->name);
-    pec_symbols.putname(fln);
     if (dummy_file == NULL) {
         return pec_symbols.original_execve(args);
     }
+    pec_symbols.putname(fln);
     service = dummy_file->service;
     program_args_t* pg = new_program_args((const char*)args->di, (const char* const*) args->si, (const char* const*)args->dx, pec_symbols.getname, pec_symbols.putname);
 
@@ -688,6 +691,13 @@ static int pec_init_symbols(void) {
 
     pec_store_init();
     return 0;
+}
+
+static void pec_destroy_symbols(void) {
+    enable_page_rw(pec_symbols.syscall_table);
+    pec_symbols.syscall_table[__NR_execve] = pec_symbols.original_execve;
+    disable_page_rw(pec_symbols.syscall_table);
+    memset(&pec_symbols, 0, sizeof(pec_symbols));
 }
 
 typedef struct pec_private_data {
@@ -877,10 +887,10 @@ int pec_flush (struct file *file, fl_owner_t id) {
 typedef enum pec_ioctl_call{
     INIT_DUMMY_FILE = 0,
     INIT_SERVICE = 1,
-    ASSOCIATE_SERVICE_WITH_DUMMY_FILE = 2,
-    INIT_PROXY = 3,
-    INIT_SERVICE_WORKER = 4,
-    SWITCH_SERVICE_WORKER_READ_MOD = 5
+    ASSOCIATE_SERVICE_WITH_DUMMY_FILE = 3,
+    INIT_PROXY = 4,
+    INIT_SERVICE_WORKER = 5,
+    SWITCH_SERVICE_WORKER_READ_MOD = 6
 } pec_ioctl_call_t;
 
 ssize_t pec_init_dummy_file (pec_private_data_t* private_data, const char __user* args) {
@@ -892,7 +902,7 @@ ssize_t pec_init_dummy_file (pec_private_data_t* private_data, const char __user
     pec_symbols.putname(fname);
     if (pec_storage_create_dummy_file(&storage, fname_str) == NULL)
         return -EEXIST;
-
+    INFO("create dummy file %s", fname_str);
     return 0;
 }
 
@@ -906,6 +916,7 @@ ssize_t pec_init_service (pec_private_data_t* private_data) {
 
     private_data->type = SERVICE;
     private_data->service = service;
+    INFO("create service wuth id %lu", service->ID);
     return 0;
 }
 
@@ -914,9 +925,16 @@ ssize_t pec_associate_service_with_dummy_file (pec_private_data_t* private_data,
         return -EPERM;
 
     service_t* service = private_data->service;
-
     read_lock(&storage.dummy_file_lock);
-    dummy_file_t* dummy_file = pec_storage_find_dummy_file_by_fnmae(&storage, fname);
+    struct filename* file_name = pec_symbols.getname(fname);
+    INFO("start associate dummy file - '%s' with service - %lu", file_name->name, service->ID);
+    dummy_file_t* dummy_file = pec_storage_find_dummy_file_by_fnmae(&storage, file_name->name);
+    pec_symbols.putname(file_name);
+    if (dummy_file == NULL) {
+        INFO("dummy file - '%s' not found", file_name->name);
+        read_unlock(&storage.dummy_file_lock);
+        return -ENOENT;
+    }
     if (dummy_file->service != NULL) {
         read_unlock(&storage.dummy_file_lock);
         return -EBUSY;
@@ -1013,17 +1031,16 @@ ssize_t pec_switch_service_worker_read_mod(pec_private_data_t* private_data, enu
 }
 
 ssize_t pec_ioctl (struct file *f, unsigned int cmd, unsigned long args) {
-    if (cmd > 5)
-        return -EPERM;
     pec_ioctl_call_t call = cmd;
     pec_private_data_t* private_data = f->private_data;
+    INFO("ioctl cmd %d", cmd);
     switch (call) {
         case INIT_DUMMY_FILE:
             return pec_init_dummy_file(private_data, (const char *) args);
         case INIT_SERVICE:
             return pec_init_service(private_data);
         case ASSOCIATE_SERVICE_WITH_DUMMY_FILE:
-            return pec_associate_service_with_dummy_file(private_data, (const char *) args);
+            return pec_associate_service_with_dummy_file(private_data, args);
         case INIT_PROXY:
             return pec_init_proxy(f, private_data, args);
         case INIT_SERVICE_WORKER:
@@ -1079,6 +1096,8 @@ static int __init pec_init(void) {
 
 static void __exit pec_exit(void)
 {
+    pec_destroy_symbols();
+    pec_destroy();
     device_destroy(device.dev_class, device.dev);
     class_destroy(device.dev_class);
     cdev_del(&device.pec_cdev);
