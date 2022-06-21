@@ -12,10 +12,13 @@
 #define DEFAULT_BUFFER_SIZE 1024
 
 int main(int argc, char** argv) {
-
+    if (argc < 1)
+        return -1;
+    size_t ID = atoi(argv[0]);
     fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
     int fd = open("/dev/pec", O_RDWR | O_NONBLOCK);
-    int ret = ioctl(fd, 4, atoi(argv[argc - 1]));
+
+    int ret = ioctl(fd, 4, &ID);
     if (ret < 0)
         return -1;
     while (1) {
@@ -44,4 +47,5 @@ int main(int argc, char** argv) {
             }
         }
     }
+    return 0;
 }

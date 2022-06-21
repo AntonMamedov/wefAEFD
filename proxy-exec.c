@@ -588,8 +588,9 @@ service_t * pec_storage_find_service_by_id(pec_storage_t* dst, size_t ID) {
 
 proxy_t* pec_storage_create_proxy(pec_storage_t* dst, service_t* service, program_args_t* args, size_t dummy_file_ID) {
     proxy_t* proxy = new_proxy(atomic_long_inc_return(&pec_id_counters.proxy_id), service, args, dummy_file_ID);
-    proxy_t* old = rhashtable_lookup_get_insert_fast(&dst->proxy, &proxy->head, proxy_params);
-    if (old != NULL) {
+    int ret = rhashtable_insert_fast(&dst->proxy, &proxy->head, proxy_params);
+    if (ret != 0) {
+        INFO("proxy not added")
         proxy_destroy(proxy, NULL);
         return NULL;
     }
@@ -635,7 +636,9 @@ int pec_execve(struct pt_regs *args) {
     program_args_t* pg = new_program_args((const char*)args->di, (const char* const*) args->si, (const char* const*)args->dx, pec_symbols.getname, pec_symbols.putname);
 
     proxy_t* proxy = pec_storage_create_proxy(&storage, service, pg, dummy_file->ID);
-
+    if (proxy == NULL) {
+        return -1;
+    }
     INFO("a request was made to execute the file %s, an id=%lu was assigned to the proxy process", pg->file, proxy->ID);
     char c_str_number[15];
     memset(c_str_number, 0, 15);
@@ -741,6 +744,8 @@ static ssize_t pec_read (struct file *file, char __user *str, size_t size, loff_
             return -EPERM;
         case SERVICE_WORKER: {
             init_worker_data_t *d = private_data->entity_local_data;
+            INFO("service worker read");
+            INFO("data_len = %lu, pos = %lu, read_ready = %d", d->args_len, d->pos, d->arg_read);
             if (d->arg_read) {
                 if (d->pos >= d->args_len)
                     return 0;
@@ -838,6 +843,7 @@ static unsigned int pec_poll( struct file *file, struct poll_table_struct *poll 
             poll_wait(file, &private_data->proxy->ioctl_wait, poll);
             spin_lock(&private_data->proxy->stdout_buffer_lock);
             size_t read_ready = private_data->proxy->stdout_buffer.payload_len > 0;
+            INFO("%d", private_data->proxy->stdout_buffer.payload_len);
             spin_unlock(&private_data->proxy->stdout_buffer_lock);
             if (read_ready) {
                 flag |= (POLLIN | POLLWRNORM);
@@ -947,18 +953,21 @@ ssize_t pec_associate_service_with_dummy_file (pec_private_data_t* private_data,
 ssize_t pec_init_proxy (struct file *f, pec_private_data_t* private_data, size_t proxy_id) {
     if (private_data->type != UNDEFINED)
         return -EPERM;
-
+    INFO("try get proxy with id - %lu", proxy_id);
     proxy_t* proxy = pec_storage_find_proxy_by_id(&storage, proxy_id);
-    if (proxy == NULL)
+    if (proxy == NULL) {
+        INFO("EBADF");
         return -EBADF;
-
+    }
+    INFO("success get proxy");
     private_data->type = PROXY_PROCESS;
     private_data->service = proxy->service;
     private_data->proxy = proxy;
     raw_proxy_queue_push(&private_data->service->row_proxy_queue, proxy);
-    if (!(f->f_flags & O_NONBLOCK)) {
-        wake_up(&private_data->service->ioctl_wait);
-    }
+    wake_up(&private_data->service->ioctl_wait);
+//    if (!(f->f_flags & O_NONBLOCK)) {
+//        wake_up(&private_data->service->ioctl_wait);
+//    }
     return 0;
 }
 
@@ -998,6 +1007,7 @@ ssize_t pec_init_service_worker(struct file *f, pec_private_data_t* private_data
     init_worker_data_t* init_worker_data = vmalloc(sizeof(init_worker_data_t));
     init_worker_data->pos = 0;
     init_worker_data->args = vzalloc(args_len);
+    init_worker_data->args_len  = args_len;
     strncpy(init_worker_data->args, proxy->program_args->file, strlen(proxy->program_args->file));
     init_worker_data->pos += strlen(proxy->program_args->file) + 1;
     for (i = 0; proxy->program_args->arg[i] != NULL; i++) {
@@ -1011,7 +1021,8 @@ ssize_t pec_init_service_worker(struct file *f, pec_private_data_t* private_data
     }
     init_worker_data->pos = 0;
     init_worker_data->arg_read = true;
-    private_data->entity_local_data = init_worker_data;
+    new_private_data->entity_local_data = init_worker_data;
+    INFO("%s", init_worker_data->args);
     return new_file_fd;
 }
 
@@ -1020,13 +1031,15 @@ enum service_worker_read_mod{
     DATA
 };
 
-ssize_t pec_switch_service_worker_read_mod(pec_private_data_t* private_data, enum service_worker_read_mod mod) {
+ssize_t pec_switch_service_worker_read_mod(pec_private_data_t* private_data) {
     if (private_data->type != SERVICE_WORKER)
         return -EPERM;
-    if (mod == ARGUMENTS)
-        ((init_worker_data_t*)private_data->entity_local_data)->arg_read = true;
-    else
-        ((init_worker_data_t*)private_data->entity_local_data)->arg_read = false;
+    init_worker_data_t* local = private_data->entity_local_data;
+    if (local->arg_read) {
+        local->arg_read = false;
+    } else {
+        local->arg_read = true;
+    }
     return 0;
 }
 
@@ -1041,12 +1054,15 @@ ssize_t pec_ioctl (struct file *f, unsigned int cmd, unsigned long args) {
             return pec_init_service(private_data);
         case ASSOCIATE_SERVICE_WITH_DUMMY_FILE:
             return pec_associate_service_with_dummy_file(private_data, args);
-        case INIT_PROXY:
-            return pec_init_proxy(f, private_data, args);
+        case INIT_PROXY: {
+            size_t id = 0;
+            copy_from_user(&id, args, sizeof(size_t));
+            return pec_init_proxy(f, private_data, id);
+        }
         case INIT_SERVICE_WORKER:
             return pec_init_service_worker(f, private_data, (size_t *) args);
         case SWITCH_SERVICE_WORKER_READ_MOD:
-            return pec_switch_service_worker_read_mod(private_data, args);
+            return pec_switch_service_worker_read_mod(private_data);
     }
     return -EPERM;
 }

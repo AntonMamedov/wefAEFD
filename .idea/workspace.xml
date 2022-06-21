@@ -19,9 +19,10 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2b73dd49-1636-472b-bdd5-1a43693666fb" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/CMakeLists.txt" beforeDir="false" afterPath="$PROJECT_DIR$/bin/CMakeLists.txt" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/dummy_file_registrator.c" beforeDir="false" afterPath="$PROJECT_DIR$/bin/dummy_file_registrator.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/proxy.c" beforeDir="false" afterPath="$PROJECT_DIR$/bin/proxy.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/service_registrator.c" beforeDir="false" afterPath="$PROJECT_DIR$/bin/service_registrator.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bin/test.c" beforeDir="false" afterPath="$PROJECT_DIR$/bin/test.c" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/proxy-exec.c" beforeDir="false" afterPath="$PROJECT_DIR$/proxy-exec.c" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -168,7 +169,12 @@
       <workItem from="1655664674883" duration="197000" />
       <workItem from="1655665957623" duration="361000" />
       <workItem from="1655676036735" duration="3865000" />
-      <workItem from="1655718316662" duration="1000" />
+      <workItem from="1655718316662" duration="29000" />
+      <workItem from="1655753026187" duration="5665000" />
+      <workItem from="1655758790929" duration="270000" />
+      <workItem from="1655759252123" duration="212000" />
+      <workItem from="1655759540905" duration="352000" />
+      <workItem from="1655760013842" duration="130000" />
     </task>
     <servers />
   </component>
@@ -195,8 +201,28 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
           <url>file://$PROJECT_DIR$/bin/service_registrator.c</url>
-          <line>21</line>
+          <line>27</line>
           <option name="timeStamp" value="4" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
+          <url>file://$PROJECT_DIR$/bin/service_registrator.c</url>
+          <line>20</line>
+          <option name="timeStamp" value="5" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
+          <url>file://$PROJECT_DIR$/bin/service_registrator.c</url>
+          <line>10</line>
+          <option name="timeStamp" value="7" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
+          <url>file://$PROJECT_DIR$/bin/dummy_file_registrator.c</url>
+          <line>8</line>
+          <option name="timeStamp" value="8" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
+          <url>file://$PROJECT_DIR$/bin/test.c</url>
+          <line>7</line>
+          <option name="timeStamp" value="9" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

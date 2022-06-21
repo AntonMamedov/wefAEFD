@@ -19,6 +19,12 @@ int main() {
     size_t test = 0;
     int ret = ioctl(fd, 5, &test);
     printf("%s\n", strerror(errno));
+
+    char buff[1024];
+    read(ret, buff, 1024);
+    ioctl(ret, 6);
+    printf("%s\n", strerror(errno));
+    write(ret, "213211saddsadasdassdaasdasdasd", strlen("213211saddsadasdassdaasdasdasd"));
     close(fd);
     return 0;
 }
